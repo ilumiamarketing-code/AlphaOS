@@ -717,3 +717,65 @@ class LearningReport(BaseModel):
 
     def has_data(self) -> bool:
         return self.positions_with_signal_data > 0
+
+
+class BrokerPosition(BaseModel):
+    """Posición reportada directamente por IBKR — a diferencia de
+    OperationEntry (que este sistema crea cuando genera una señal propia),
+    esto es lo que el broker dice que realmente tienes: fuente de verdad
+    externa, nunca inferida."""
+
+    account: str
+    ticker: str
+    quantity: float
+    avg_cost: float
+
+
+class BrokerAccountSummary(BaseModel):
+    """Resumen de cuenta de IBKR (TWS/IB Gateway corriendo localmente).
+    `is_paper_account` se deriva del prefijo de cuenta que asigna IBKR
+    ('DU' = práctica, 'U' = real) — nunca se asume, se lee directamente."""
+
+    account: str
+    is_paper_account: bool
+    net_liquidation: float | None = None
+    total_cash: float | None = None
+    buying_power: float | None = None
+    positions: list[BrokerPosition] = Field(default_factory=list)
+    as_of: datetime = Field(default_factory=datetime.utcnow)
+
+    def has_data(self) -> bool:
+        return self.net_liquidation is not None
+
+
+class PaperOrderRequest(BaseModel):
+    """Orden de prueba a enviar vía IBKR — siempre en cuenta de práctica,
+    el adapter se niega a enviarla si la cuenta conectada no lo es."""
+
+    ticker: str
+    side: Literal["BUY", "SELL"]
+    quantity: float = Field(gt=0)
+    order_type: Literal["MKT", "LMT"] = "MKT"
+    limit_price: float | None = None
+
+
+class PaperOrderResult(BaseModel):
+    """Resultado real de una orden enviada a IBKR — `status` es el estado
+    tal como lo reporta IBKR (ej. 'Filled', 'Submitted', 'PreSubmitted'),
+    nunca forzado a 'Filled' aunque el mercado esté cerrado o la orden
+    tarde en ejecutarse."""
+
+    account: str
+    ticker: str
+    side: Literal["BUY", "SELL"]
+    quantity: float
+    order_type: Literal["MKT", "LMT"]
+    status: str
+    order_id: int | None = None
+    filled_quantity: float | None = None
+    avg_fill_price: float | None = None
+    rejected_reason: str | None = None
+    as_of: datetime = Field(default_factory=datetime.utcnow)
+
+    def has_data(self) -> bool:
+        return bool(self.order_id) or bool(self.rejected_reason)

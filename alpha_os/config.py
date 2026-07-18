@@ -15,6 +15,12 @@ class Settings:
     reddit_client_id: str | None = os.getenv("REDDIT_CLIENT_ID") or None
     reddit_client_secret: str | None = os.getenv("REDDIT_CLIENT_SECRET") or None
     coinmarketcal_api_key: str | None = os.getenv("COINMARKETCAL_API_KEY") or None
+    # TWS/IB Gateway corren localmente en la máquina del usuario, nunca en
+    # la nube — así funciona la API de IBKR. Puertos por defecto de TWS:
+    # 7497 paper, 7496 real. IB Gateway: 4002 paper, 4001 real.
+    ibkr_host: str = os.getenv("IBKR_HOST", "127.0.0.1")
+    ibkr_port: int = int(os.getenv("IBKR_PORT", "7497"))
+    ibkr_client_id: int = int(os.getenv("IBKR_CLIENT_ID", "1"))
     # 45 = punto intermedio. Con técnico + fundamentales + sentimiento
     # conectados (máximo teórico ~73), exige varios factores de confirmación
     # convergentes (ej. tendencia + momentum + fundamentales sanos) pero no

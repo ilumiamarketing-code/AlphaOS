@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from alpha_os.api import (
+    routes_broker,
     routes_calendar,
     routes_defi,
     routes_learning,
@@ -27,6 +28,7 @@ app.include_router(routes_narrative.router)
 app.include_router(routes_calendar.router)
 app.include_router(routes_defi.router)
 app.include_router(routes_learning.router)
+app.include_router(routes_broker.router)
 
 
 @app.get("/health")

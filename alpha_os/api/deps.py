@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from alpha_os.adapters.broker.ibkr_adapter import IBKRAdapter
 from alpha_os.adapters.fundamental.yfinance_adapter import YFinanceFundamentalAdapter
 from alpha_os.adapters.institutional.form4_adapter import Form4Adapter
 from alpha_os.adapters.institutional.form13f_adapter import Form13FAdapter
@@ -193,3 +194,8 @@ def get_learning_engine() -> LearningEngine:
     return LearningEngine(
         position_manager=get_position_manager(), journal_manager=get_journal_manager()
     )
+
+
+@lru_cache
+def get_ibkr_adapter() -> IBKRAdapter:
+    return IBKRAdapter()

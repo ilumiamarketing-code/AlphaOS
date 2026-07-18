@@ -327,6 +327,42 @@ El umbral de confianza (`SIGNAL_CONFIDENCE_THRESHOLD`, default 45 en
 reescalados por régimen) sin llegar a la alineación casi perfecta que
 exigiría el 70 original del spec.
 
+## Broker — Interactive Brokers (paper trading)
+
+`alpha_os/adapters/broker/ibkr_adapter.py` — conecta con TWS o IB Gateway
+corriendo **localmente** en la máquina del usuario (así funciona la API de
+IBKR, nunca en la nube), vía `ib_async`. Requiere que el usuario tenga la
+sesión iniciada ahí y la API habilitada (Configure > API > Settings >
+Enable ActiveX and Socket Clients, con "Permitir conexiones solo de
+localhost" activado — comportamiento por defecto, no requiere agregar
+`127.0.0.1` a mano). Sin TWS/Gateway corriendo, los métodos devuelven
+vacío/rechazado sin fallar, igual que el resto de adapters de este sistema
+sin su fuente disponible.
+
+**Solo opera órdenes contra cuentas de práctica** (prefijo de cuenta `DU`,
+convención de IBKR): `place_test_order` se niega a enviar la orden si la
+cuenta conectada no lo es — este sistema nunca coloca órdenes en dinero
+real, sin importar qué pida quien llama.
+
+- **Resumen de cuenta** (`GET /broker/account-summary`): liquidación neta,
+  cash, poder de compra y posiciones, leídos directo del broker.
+  `is_paper_account` se deriva del prefijo real de la cuenta, nunca se
+  asume.
+- **Posiciones** (`GET /broker/positions`): lo que IBKR reporta que
+  realmente tienes — fuente de verdad externa, distinta de las posiciones
+  que este sistema crea internamente al generar una señal
+  (`OperationEntry`).
+- **Orden de prueba** (`POST /broker/test-order`): envía una orden real
+  (MKT o LMT) a la cuenta paper. `status` es siempre el estado tal como lo
+  reporta IBKR (`Filled`, `Submitted`, `PendingSubmit`...), nunca forzado —
+  verificado en vivo: con el mercado cerrado (fin de semana), una orden de
+  compra de AAPL quedó en `PendingSubmit` en vez de fabricarse como
+  `Filled`.
+
+Probado end-to-end con una cuenta paper real de IBKR (`DUQ282112`,
+$1,000,000 virtuales): resumen de cuenta correcto y una orden de compra de
+AAPL aceptada por el broker con `order_id` real asignado.
+
 ## Tests
 
 ```bash
