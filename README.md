@@ -167,11 +167,20 @@ tests/            pytest — institucional, régimen de mercado, factores cripto
   - **Fees/revenue** (`GET /defi/fees`): fees agregados de protocolos de
     una chain, 24h/7d y cambio diario.
 
+  - **Yields de lending/staking/LP** (`GET /defi/yields`): vía
+    `yields.llama.fi/pools` (DeFiLlama, gratis, sin key) — >15,000 pools
+    agregados de todos los protocolos/chains en una sola consulta,
+    resolviendo lo que antes parecía requerir pedir protocolo por
+    protocolo. Filtros los declara quien consulta (`chain`,
+    `stablecoin_only`, `min_tvl_usd`, `limit`); **pools con TVL bajo se
+    excluyen por defecto** (`min_tvl_usd=1M`) porque son más fáciles de
+    manipular con APY artificialmente inflado, y los que DeFiLlama marca
+    como `outlier` (estadísticamente atípicos) se excluyen siempre.
+    Probado con datos reales: top yields de Ethereum y filtro
+    stablecoin-only funcionando en vivo.
+
   Token unlocks/vesting sigue sin fuente gratis (DeFiLlama lo movió a su
-  API de pago durante este trabajo). Lending/borrow rates, staking/
-  unstaking y stablecoin yield individuales quedan pendientes — DeFiLlama
-  los expone por protocolo específico, no agregados por chain, y no se
-  verificó una fuente agregada gratis para ellos.
+  API de pago durante este trabajo).
 
   **Ethereum** (`adapters/onchain/etherscan_adapter.py`): conectado vía
   Etherscan API V2 (`chainid=1`), misma lógica de flujo/anomalía/umbral

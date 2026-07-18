@@ -5,12 +5,18 @@ from alpha_os.core.models import (
     DexVolumeSnapshot,
     FeesRevenueSnapshot,
     ProtocolTVLSnapshot,
+    YieldOpportunitiesSnapshot,
+    YieldPoolSnapshot,
 )
 
 HISTORICAL_TVL_URL = "https://api.llama.fi/v2/historicalChainTvl/{chain}"
 PROTOCOL_URL = "https://api.llama.fi/protocol/{protocol_slug}"
 DEX_OVERVIEW_URL = "https://api.llama.fi/overview/dexs/{chain}"
 FEES_OVERVIEW_URL = "https://api.llama.fi/overview/fees/{chain}"
+YIELDS_URL = "https://yields.llama.fi/pools"
+
+DEFAULT_MIN_TVL_USD = 1_000_000.0  # pools con poco TVL son más fáciles de manipular (APY inflado artificialmente)
+TOP_N_POOLS = 20
 
 
 class DeFiLlamaAdapter:
@@ -82,4 +88,57 @@ class DeFiLlamaAdapter:
             fees_24h_usd=data.get("total24h"),
             fees_7d_usd=data.get("total7d"),
             change_24h_pct=data.get("change_1d"),
+        )
+
+    def get_yield_opportunities(
+        self,
+        chain: str | None = None,
+        stablecoin_only: bool = False,
+        min_tvl_usd: float = DEFAULT_MIN_TVL_USD,
+        limit: int = TOP_N_POOLS,
+    ) -> YieldOpportunitiesSnapshot:
+        """Cubre lending/staking/LP yield — pendiente hasta ahora porque
+        DeFiLlama solo exponía esto por protocolo individual. `yields.llama.fi/pools`
+        sí es agregado (>15,000 pools de todos los protocolos/chains en una
+        sola consulta, gratis, sin key)."""
+        try:
+            response = requests.get(YIELDS_URL, timeout=20)
+            response.raise_for_status()
+            raw_pools = response.json().get("data", [])
+        except (requests.RequestException, ValueError, KeyError):
+            return YieldOpportunitiesSnapshot(chain=chain, stablecoin_only=stablecoin_only, min_tvl_usd=min_tvl_usd)
+
+        filtered = []
+        for p in raw_pools:
+            if p.get("outlier"):
+                continue  # DeFiLlama ya lo marca como estadísticamente atípico (probable error/manipulación)
+            if (p.get("tvlUsd") or 0) < min_tvl_usd:
+                continue
+            if chain and (p.get("chain") or "").lower() != chain.lower():
+                continue
+            if stablecoin_only and not p.get("stablecoin"):
+                continue
+            filtered.append(p)
+
+        filtered.sort(key=lambda p: p.get("apy") or 0, reverse=True)
+        filtered = filtered[:limit]
+
+        pools = [
+            YieldPoolSnapshot(
+                pool_id=p["pool"],
+                project=p["project"],
+                chain=p["chain"],
+                symbol=p["symbol"],
+                apy=p.get("apy"),
+                apy_base=p.get("apyBase"),
+                apy_reward=p.get("apyReward"),
+                tvl_usd=p.get("tvlUsd"),
+                is_stablecoin=bool(p.get("stablecoin")),
+                prediction=(p.get("predictions") or {}).get("predictedClass"),
+            )
+            for p in filtered
+        ]
+
+        return YieldOpportunitiesSnapshot(
+            chain=chain, stablecoin_only=stablecoin_only, min_tvl_usd=min_tvl_usd, pools=pools
         )

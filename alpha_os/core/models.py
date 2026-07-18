@@ -651,6 +651,44 @@ class FeesRevenueSnapshot(BaseModel):
         return self.fees_24h_usd is not None
 
 
+class YieldPoolSnapshot(BaseModel):
+    """Un pool de lending/staking/LP individual vía DeFiLlama
+    (yields.llama.fi/pools), gratis y sin key. `prediction` es la propia
+    etiqueta de ML de DeFiLlama sobre la estabilidad del APY (ej.
+    "Stable/Up") — se expone tal cual, no es una interpretación propia de
+    este sistema."""
+
+    pool_id: str
+    project: str
+    chain: str
+    symbol: str
+    apy: float | None = None
+    apy_base: float | None = None
+    apy_reward: float | None = None
+    tvl_usd: float | None = None
+    is_stablecoin: bool = False
+    prediction: str | None = None
+
+
+class YieldOpportunitiesSnapshot(BaseModel):
+    """Resultado filtrado de pools de yield — filtros los declara siempre
+    quien consulta (chain/stablecoin_only/min_tvl_usd), este sistema no
+    decide de antemano qué protocolo o chain es "mejor". `min_tvl_usd`
+    existe porque pools con TVL bajo son más fáciles de manipular
+    (APY artificialmente alto con liquidez mínima) — DeFiLlama también
+    marca pools estadísticamente atípicos (`outlier`), que se excluyen
+    siempre."""
+
+    chain: str | None = None
+    stablecoin_only: bool = False
+    min_tvl_usd: float
+    pools: list[YieldPoolSnapshot] = Field(default_factory=list)
+    as_of: datetime = Field(default_factory=datetime.utcnow)
+
+    def has_data(self) -> bool:
+        return len(self.pools) > 0
+
+
 class FactorPerformance(BaseModel):
     """Desempeño real de un factor a través de posiciones ya cerradas.
     `has_sufficient_sample` en False significa que la muestra es

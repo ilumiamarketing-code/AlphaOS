@@ -63,3 +63,79 @@ def test_fees_revenue_network_failure_returns_empty():
         mocked_get.side_effect = requests.ConnectionError("boom")
         snapshot = adapter.get_fees_revenue("ethereum")
     assert snapshot.has_data() is False
+
+
+def _yield_pool(
+    pool_id, project, chain, symbol, apy, tvl_usd, stablecoin=False, outlier=False
+):
+    return {
+        "pool": pool_id,
+        "project": project,
+        "chain": chain,
+        "symbol": symbol,
+        "apy": apy,
+        "apyBase": apy,
+        "apyReward": None,
+        "tvlUsd": tvl_usd,
+        "stablecoin": stablecoin,
+        "outlier": outlier,
+        "predictions": {"predictedClass": "Stable/Up"},
+    }
+
+
+def test_yield_opportunities_filters_by_min_tvl_and_sorts_by_apy():
+    payload = {
+        "data": [
+            _yield_pool("p1", "lido", "Ethereum", "STETH", apy=3.0, tvl_usd=5_000_000),
+            _yield_pool("p2", "aave-v3", "Ethereum", "USDC", apy=8.0, tvl_usd=2_000_000, stablecoin=True),
+            _yield_pool("p3", "sketchy-farm", "Ethereum", "SCAM", apy=9000.0, tvl_usd=500),
+        ]
+    }
+    adapter = DeFiLlamaAdapter()
+    with patch("alpha_os.adapters.onchain.defillama_adapter.requests.get") as mocked_get:
+        mocked_get.return_value = _FakeResponse(payload)
+        snapshot = adapter.get_yield_opportunities(min_tvl_usd=1_000_000.0)
+
+    pool_ids = [p.pool_id for p in snapshot.pools]
+    assert "p3" not in pool_ids  # TVL bajo, filtrado
+    assert pool_ids == ["p2", "p1"]  # ordenado por APY descendente
+
+
+def test_yield_opportunities_excludes_outliers_and_filters_stablecoin_only():
+    payload = {
+        "data": [
+            _yield_pool("p1", "lido", "Ethereum", "STETH", apy=3.0, tvl_usd=5_000_000, stablecoin=False),
+            _yield_pool("p2", "aave-v3", "Ethereum", "USDC", apy=200.0, tvl_usd=5_000_000, stablecoin=True, outlier=True),
+            _yield_pool("p3", "curve", "Ethereum", "DAI", apy=5.0, tvl_usd=5_000_000, stablecoin=True),
+        ]
+    }
+    adapter = DeFiLlamaAdapter()
+    with patch("alpha_os.adapters.onchain.defillama_adapter.requests.get") as mocked_get:
+        mocked_get.return_value = _FakeResponse(payload)
+        snapshot = adapter.get_yield_opportunities(stablecoin_only=True, min_tvl_usd=1_000_000.0)
+
+    pool_ids = [p.pool_id for p in snapshot.pools]
+    assert pool_ids == ["p3"]  # p1 no es stablecoin, p2 es outlier
+
+
+def test_yield_opportunities_filters_by_chain():
+    payload = {
+        "data": [
+            _yield_pool("p1", "lido", "Ethereum", "STETH", apy=3.0, tvl_usd=5_000_000),
+            _yield_pool("p2", "marinade", "Solana", "MSOL", apy=6.0, tvl_usd=5_000_000),
+        ]
+    }
+    adapter = DeFiLlamaAdapter()
+    with patch("alpha_os.adapters.onchain.defillama_adapter.requests.get") as mocked_get:
+        mocked_get.return_value = _FakeResponse(payload)
+        snapshot = adapter.get_yield_opportunities(chain="Solana", min_tvl_usd=1_000_000.0)
+
+    assert [p.pool_id for p in snapshot.pools] == ["p2"]
+
+
+def test_yield_opportunities_network_failure_returns_empty():
+    adapter = DeFiLlamaAdapter()
+    with patch("alpha_os.adapters.onchain.defillama_adapter.requests.get") as mocked_get:
+        mocked_get.side_effect = requests.ConnectionError("boom")
+        snapshot = adapter.get_yield_opportunities()
+    assert snapshot.has_data() is False
