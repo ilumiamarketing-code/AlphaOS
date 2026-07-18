@@ -435,7 +435,16 @@ LearningEngine) — no calcula nada nuevo, solo compone.
   modelo). Advertencia de performance conocida: escanear el watchlist
   entero dispara una llamada real de `SignalEngine.generate_signal()` por
   ticker (yfinance/NewsAPI/FRED/SEC/Binance en vivo) — con 7 tickers,
-  `/brief` puede tardar varios segundos.
+  `/brief` puede tardar varios segundos. Cada tarjeta tiene un botón
+  **"Marcar como comprado"**: abre un formulario mínimo (cantidad, precio
+  de entrada, broker, stop loss, take profit — precargado desde la
+  `Signal` pero editable, porque lo que el usuario compró de verdad puede
+  no coincidir exacto con la sugerencia) que llama al `POST /positions` ya
+  existente con `original_signal` incluido — así la posición queda
+  monitoreada por `reassess_thesis` desde el primer refresh, sin ningún
+  endpoint nuevo del lado del backend. Probado end-to-end: registrar una
+  compra de AAPL desde la tarjeta la hizo aparecer de inmediato en "Mis
+  posiciones" con "Tesis vigente".
 - **Aprendizaje**: `LearningReport.rationale` tal cual — con una cuenta
   nueva sin posiciones cerradas, dice honestamente que no hay muestra
   todavía.

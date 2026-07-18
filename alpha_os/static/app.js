@@ -191,11 +191,18 @@ function renderOpportunities(opportunities) {
             <div><span>SL</span><b>${fmtMoney(s.stop_loss)}</b></div>
             <div><span>TP</span><b>${fmtMoney((s.take_profit_targets || [])[0])}</b></div>
           </div>
+          <button class="btn-buy" data-idx="${i}">Marcar como comprado</button>
         </div>`)
     .join("");
 
   el.querySelectorAll(".opp-card").forEach((card) => {
     card.addEventListener("click", () => openSignalDetail(opportunities[Number(card.dataset.idx)]));
+  });
+  el.querySelectorAll(".btn-buy").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openBuyForm(opportunities[Number(btn.dataset.idx)]);
+    });
   });
 }
 
@@ -224,6 +231,93 @@ function openSignalDetail(signal) {
 
 function closeModal() {
   document.getElementById("detail-modal").classList.add("hidden");
+}
+
+function openBuyForm(signal) {
+  const takeProfit = (signal.take_profit_targets || [])[0];
+  document.getElementById("buy-modal-body").innerHTML = `
+    <div class="card-heading">Registrar compra — ${escapeHtml(signal.ticker)}</div>
+    <p class="empty-note" style="margin-bottom:16px;">
+      Confirma lo que realmente compraste — Alpha Brief empieza a monitorear la tesis desde aquí.
+    </p>
+    <form id="buy-form">
+      <label class="form-label">Cantidad
+        <input type="number" step="any" min="0" name="quantity" required class="form-input" />
+      </label>
+      <label class="form-label">Precio de entrada
+        <input type="number" step="any" min="0" name="entry_price" value="${signal.suggested_entry ?? signal.price}" required class="form-input" />
+      </label>
+      <label class="form-label">Broker
+        <input type="text" name="broker" value="manual" required class="form-input" />
+      </label>
+      <label class="form-label">Stop loss
+        <input type="number" step="any" min="0" name="stop_loss" value="${signal.stop_loss ?? ""}" class="form-input" />
+      </label>
+      <label class="form-label">Take profit
+        <input type="number" step="any" min="0" name="take_profit" value="${takeProfit ?? ""}" class="form-input" />
+      </label>
+      <div id="buy-form-error" class="error hidden" style="margin-top:12px;"></div>
+      <button type="submit" class="btn-refresh" style="margin-top:16px; width:100%;">Registrar compra</button>
+    </form>
+  `;
+
+  document.getElementById("buy-form").addEventListener("submit", (e) => submitBuy(e, signal));
+  document.getElementById("buy-modal").classList.remove("hidden");
+}
+
+function closeBuyModal() {
+  document.getElementById("buy-modal").classList.add("hidden");
+}
+
+async function submitBuy(e, signal) {
+  e.preventDefault();
+  const form = e.target;
+  const submitBtn = form.querySelector("button[type=submit]");
+  const quantity = Number(form.quantity.value);
+  const entryPrice = Number(form.entry_price.value);
+  const stopLoss = form.stop_loss.value ? Number(form.stop_loss.value) : entryPrice * 0.9;
+  const takeProfit = form.take_profit.value ? Number(form.take_profit.value) : null;
+
+  const entry = {
+    ticker: signal.ticker,
+    asset_class: signal.asset_class,
+    side: signal.direction === "long" ? "buy" : "sell",
+    broker: form.broker.value || "manual",
+    executed_at: new Date().toISOString(),
+    entry_price: entryPrice,
+    quantity: quantity,
+    capital_invested: entryPrice * quantity,
+    expected_horizon: signal.time_horizon,
+    assumed_risk: signal.risk_level,
+    original_thesis: signal.rationale,
+    original_signal: signal,
+  };
+  const riskParameters = {
+    stop_loss: stopLoss,
+    take_profit: takeProfit,
+  };
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Registrando…";
+  try {
+    const response = await fetch("/positions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entry, risk_parameters: riskParameters }),
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(detail);
+    }
+    closeBuyModal();
+    loadBrief();
+  } catch (err) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Registrar compra";
+    const errEl = document.getElementById("buy-form-error");
+    errEl.textContent = `No se pudo registrar: ${err.message}`;
+    errEl.classList.remove("hidden");
+  }
 }
 
 async function loadBrief() {
@@ -259,6 +353,8 @@ async function loadBrief() {
 
 document.getElementById("refresh-btn").addEventListener("click", loadBrief);
 document.getElementById("modal-close").addEventListener("click", closeModal);
-document.querySelector(".modal-backdrop").addEventListener("click", closeModal);
+document.querySelector("#detail-modal .modal-backdrop").addEventListener("click", closeModal);
+document.getElementById("buy-modal-close").addEventListener("click", closeBuyModal);
+document.querySelector("#buy-modal .modal-backdrop").addEventListener("click", closeBuyModal);
 
 loadBrief();
