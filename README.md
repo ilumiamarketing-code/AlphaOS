@@ -179,10 +179,18 @@ tests/            pytest — institucional, régimen de mercado, factores cripto
   (`adapters/onchain/_wallet_flow_common.py`, extraída durante este trabajo
   para no duplicarla). Requiere `ETHERSCAN_API_KEY` en `.env` — sin key
   configurada se comporta igual que el resto de adapters (vacío, no falla;
-  probado sin key real). Solo cubre transferencias nativas de ETH
-  (`txlist`); transferencias de tokens ERC-20 requieren el endpoint
-  `tokentx` por separado, fuera de este alcance. Usa el mismo endpoint
+  probado sin key real). Cubre transferencias nativas de ETH (`txlist`) vía
   `GET /onchain/wallet-flow?chain=ethereum`.
+  - **Transferencias ERC-20** (`GET /onchain/token-transfers`): endpoint
+    `tokentx` de Etherscan, agregado por contrato (inflow/outflow/net/tx
+    count), top 15 tokens por volumen — wallets activas reciben decenas de
+    airdrops/spam irrelevantes. **El símbolo del token lo define el propio
+    contrato y no es confiable**: verificado con datos reales (dirección
+    pública de vitalik.eth) que existen múltiples contratos distintos
+    usando el símbolo "VITALIK" simultáneamente (tokens impostores/spam,
+    común en Ethereum) — por eso se agrupa por `contractAddress`, nunca por
+    símbolo, y este sistema no verifica legitimidad de contratos ni intenta
+    filtrar spam más allá del top-N por volumen.
 
   Fuera de alcance incluso con esto: **MVRV/SOPR/NUPL/Coin Days
   Destroyed/Realized Cap** (requieren análisis de cohortes de UTXO por edad

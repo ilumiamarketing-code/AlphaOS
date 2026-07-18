@@ -6,7 +6,7 @@ from alpha_os.adapters.onchain.blockchain_info_adapter import BlockchainInfoAdap
 from alpha_os.adapters.onchain.defillama_adapter import DeFiLlamaAdapter
 from alpha_os.adapters.onchain.etherscan_adapter import EtherscanAdapter
 from alpha_os.api.deps import get_blockchain_info_adapter, get_defillama_adapter, get_etherscan_adapter
-from alpha_os.core.models import DeFiTVLSnapshot, NetworkHealthSnapshot, WalletFlowSnapshot
+from alpha_os.core.models import DeFiTVLSnapshot, NetworkHealthSnapshot, TokenFlowSnapshot, WalletFlowSnapshot
 
 router = APIRouter(prefix="/onchain", tags=["onchain"])
 
@@ -29,6 +29,21 @@ def get_wallet_flow(
     (spec: "nunca inventar wallets")."""
     adapter = bitcoin_adapter if chain == "bitcoin" else ethereum_adapter
     return adapter.get_wallet_flow(address, label, label_source, label_confidence, lookback_days)
+
+
+@router.get("/token-transfers", response_model=TokenFlowSnapshot)
+def get_token_transfers(
+    address: str,
+    label: str = Query(..., description="Cómo llamas tú a esta wallet — nunca se infiere automáticamente"),
+    label_source: str = Query(..., description="De dónde viene esa atribución"),
+    label_confidence: float = Query(..., ge=0, le=1),
+    lookback_days: int = Query(30, ge=1, le=90),
+    adapter: EtherscanAdapter = Depends(get_etherscan_adapter),
+):
+    """Transferencias ERC-20 (Etherscan `tokentx`) de una wallet Ethereum,
+    agregadas por contrato — independiente de /wallet-flow, que solo cubre
+    ETH nativo. Requiere ETHERSCAN_API_KEY; sin key, vacío."""
+    return adapter.get_token_transfers(address, label, label_source, label_confidence, lookback_days)
 
 
 @router.get("/network-health", response_model=NetworkHealthSnapshot)

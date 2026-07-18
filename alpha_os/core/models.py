@@ -433,6 +433,40 @@ class WalletFlowSnapshot(BaseModel):
         return self.total_inflow > 0 or self.total_outflow > 0
 
 
+class TokenTransferSummary(BaseModel):
+    """Agregado de transferencias ERC-20 de un solo contrato de token dentro
+    de la ventana consultada — separado de WalletTransaction porque un
+    token no tiene el mismo "amount" universal que ETH nativo (cada
+    contrato define sus propios decimales y símbolo)."""
+
+    token_symbol: str
+    token_contract: str
+    token_decimals: int
+    inflow: float
+    outflow: float
+    net_flow: float
+    tx_count: int
+
+
+class TokenFlowSnapshot(BaseModel):
+    """Flujo de tokens ERC-20 de una wallet Ethereum (endpoint `tokentx` de
+    Etherscan) — independiente de WalletFlowSnapshot, que solo cubre ETH
+    nativo (`txlist`). Misma política de identidad: label/source/confidence
+    los declara siempre quien llama, nunca se infiere automáticamente."""
+
+    address: str
+    label: str
+    label_source: str
+    label_confidence: float = Field(ge=0, le=1)
+    lookback_days: int
+    effective_lookback_days: int
+    tokens: list[TokenTransferSummary] = Field(default_factory=list)
+    as_of: datetime = Field(default_factory=datetime.utcnow)
+
+    def has_data(self) -> bool:
+        return len(self.tokens) > 0
+
+
 class NetworkHealthSnapshot(BaseModel):
     """Salud de red on-chain (BTC vía blockchain.info charts, gratis)."""
 
