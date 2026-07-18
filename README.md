@@ -191,6 +191,17 @@ tests/            pytest — institucional, régimen de mercado, factores cripto
     común en Ethereum) — por eso se agrupa por `contractAddress`, nunca por
     símbolo, y este sistema no verifica legitimidad de contratos ni intenta
     filtrar spam más allá del top-N por volumen.
+  - **Network health de Ethereum** (`GET /onchain/network-health?chain=ethereum`):
+    gas price actual (Etherscan `gastracker&action=gasoracle`) convertido a
+    USD con precio ETH/USD de CoinGecko, para una transferencia estándar de
+    21,000 gas — probado con datos reales (~$0.004 en el momento de la
+    prueba). **`hash_rate` queda `None` a propósito**: Ethereum es
+    Proof-of-Stake desde The Merge (2022), no existe hash rate que
+    reportar. `tx_count_24h` y ambos `*_change_30d_pct` también quedan
+    `None`: el histórico de gas price (`stats&action=dailyavggasprice`) es
+    exclusivo del plan Pro de Etherscan (verificado en vivo, responde
+    "trying to access an API Pro endpoint") — se prefirió dejar el campo
+    vacío en vez de estimarlo sin fuente real.
 
   Fuera de alcance incluso con esto: **MVRV/SOPR/NUPL/Coin Days
   Destroyed/Realized Cap** (requieren análisis de cohortes de UTXO por edad

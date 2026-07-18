@@ -47,7 +47,17 @@ def get_token_transfers(
 
 
 @router.get("/network-health", response_model=NetworkHealthSnapshot)
-def get_network_health(adapter: BlockchainInfoAdapter = Depends(get_blockchain_info_adapter)):
+def get_network_health(
+    chain: Literal["bitcoin", "ethereum"] = "bitcoin",
+    bitcoin_adapter: BlockchainInfoAdapter = Depends(get_blockchain_info_adapter),
+    ethereum_adapter: EtherscanAdapter = Depends(get_etherscan_adapter),
+):
+    """Bitcoin: hash rate, tx count, avg fee, todos con cambio 30d
+    (blockchain.info, gratis). Ethereum: solo avg fee estimado (Etherscan
+    gas oracle + precio ETH/USD de CoinGecko) — ver docstring de
+    NetworkHealthSnapshot para por qué el resto de campos no aplica/no está
+    disponible gratis en una chain Proof-of-Stake."""
+    adapter = bitcoin_adapter if chain == "bitcoin" else ethereum_adapter
     return adapter.get_network_health()
 
 

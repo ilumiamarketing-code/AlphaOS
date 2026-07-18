@@ -5,6 +5,7 @@ import requests
 from alpha_os.adapters.onchain._wallet_flow_common import build_wallet_flow_snapshot, empty_snapshot
 from alpha_os.config import settings
 from alpha_os.core.models import (
+    NetworkHealthSnapshot,
     TokenFlowSnapshot,
     TokenTransferSummary,
     WalletFlowSnapshot,
@@ -13,6 +14,8 @@ from alpha_os.core.models import (
 
 ETHERSCAN_V2_URL = "https://api.etherscan.io/v2/api"
 ETH_MAINNET_CHAIN_ID = 1
+COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
+STANDARD_TRANSFER_GAS = 21000  # ETH nativo; llamadas a contratos usan bastante más
 
 PAGE_SIZE = 100
 MAX_PAGES = 2  # tope de páginas consultadas — wallets muy activas no se leen por completo
@@ -214,3 +217,52 @@ class EtherscanAdapter:
             effective_lookback_days=effective_days,
             tokens=tokens,
         )
+
+    def get_network_health(self) -> NetworkHealthSnapshot:
+        """A diferencia de Bitcoin, Ethereum es Proof-of-Stake desde The
+        Merge (2022) — no existe hash rate que reportar, así que ese campo
+        queda `None` para esta chain (nunca se inventa un valor placeholder).
+        Tampoco hay conteo de tx/24h ni histórico de gas gratis: el endpoint
+        `stats&action=dailyavggasprice` de Etherscan es exclusivo del plan
+        Pro (verificado en vivo: responde "Sorry, it looks like you are
+        trying to access an API Pro endpoint"), así que los campos de
+        cambio 30d también quedan `None` en vez de estimarse. Lo único que
+        sí es real y gratis: gas price actual (`gastracker&action=gasoracle`)
+        convertido a USD con el precio ETH/USD de CoinGecko, para una
+        transferencia estándar de 21,000 gas — una llamada a contrato puede
+        costar varias veces más, así que esto es un piso, no un promedio
+        real de todas las transacciones."""
+        if not settings.etherscan_api_key:
+            return NetworkHealthSnapshot(chain="ethereum")
+
+        try:
+            response = requests.get(
+                ETHERSCAN_V2_URL,
+                params={
+                    "chainid": ETH_MAINNET_CHAIN_ID,
+                    "module": "gastracker",
+                    "action": "gasoracle",
+                    "apikey": settings.etherscan_api_key,
+                },
+                timeout=15,
+            )
+            response.raise_for_status()
+            data = response.json()
+            if data.get("status") != "1":
+                return NetworkHealthSnapshot(chain="ethereum")
+            propose_gas_gwei = float(data["result"]["ProposeGasPrice"])
+        except (requests.RequestException, KeyError, ValueError):
+            return NetworkHealthSnapshot(chain="ethereum")
+
+        avg_fee_usd = None
+        try:
+            price_response = requests.get(
+                COINGECKO_PRICE_URL, params={"ids": "ethereum", "vs_currencies": "usd"}, timeout=15
+            )
+            price_response.raise_for_status()
+            eth_usd_price = price_response.json()["ethereum"]["usd"]
+            avg_fee_usd = propose_gas_gwei * STANDARD_TRANSFER_GAS * 1e-9 * eth_usd_price
+        except (requests.RequestException, KeyError, ValueError):
+            pass  # gas price sin conversión a USD sigue siendo parcialmente útil, no se descarta el resto
+
+        return NetworkHealthSnapshot(chain="ethereum", avg_fee_usd=avg_fee_usd)

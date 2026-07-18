@@ -163,3 +163,44 @@ def test_token_transfers_api_failure_returns_empty_not_crash():
             mocked_get.side_effect = requests.ConnectionError("boom")
             snapshot = adapter.get_token_transfers("0xabc", "test", "test", 0.5, 30)
     assert snapshot.has_data() is False
+
+
+def test_no_api_key_returns_empty_network_health_without_network_call():
+    adapter = EtherscanAdapter()
+    with patch("alpha_os.config.settings.etherscan_api_key", None):
+        with patch("alpha_os.adapters.onchain.etherscan_adapter.requests.get") as mocked_get:
+            snapshot = adapter.get_network_health()
+    mocked_get.assert_not_called()
+    assert snapshot.has_data() is False
+    assert snapshot.chain == "ethereum"
+    assert snapshot.hash_rate is None
+
+
+def test_network_health_converts_gas_price_to_usd_fee():
+    gas_payload = {
+        "status": "1",
+        "message": "OK",
+        "result": {"SafeGasPrice": "0.08", "ProposeGasPrice": "0.1", "FastGasPrice": "0.12"},
+    }
+    price_payload = {"ethereum": {"usd": 2000.0}}
+
+    adapter = EtherscanAdapter()
+    with patch("alpha_os.config.settings.etherscan_api_key", "fake-key"):
+        with patch("alpha_os.adapters.onchain.etherscan_adapter.requests.get") as mocked_get:
+            mocked_get.side_effect = [_fake_response(gas_payload), _fake_response(price_payload)]
+            snapshot = adapter.get_network_health()
+
+    # 0.1 gwei * 21000 gas * 1e-9 * $2000 = $0.0042
+    assert snapshot.avg_fee_usd is not None
+    assert round(snapshot.avg_fee_usd, 6) == 0.0042
+    assert snapshot.hash_rate is None
+    assert snapshot.tx_count_24h is None
+
+
+def test_network_health_api_failure_returns_empty_not_crash():
+    adapter = EtherscanAdapter()
+    with patch("alpha_os.config.settings.etherscan_api_key", "fake-key"):
+        with patch("alpha_os.adapters.onchain.etherscan_adapter.requests.get") as mocked_get:
+            mocked_get.side_effect = requests.ConnectionError("boom")
+            snapshot = adapter.get_network_health()
+    assert snapshot.has_data() is False

@@ -468,7 +468,13 @@ class TokenFlowSnapshot(BaseModel):
 
 
 class NetworkHealthSnapshot(BaseModel):
-    """Salud de red on-chain (BTC vía blockchain.info charts, gratis)."""
+    """Salud de red on-chain. BTC vía blockchain.info charts (gratis):
+    hash_rate/tx_count/avg_fee_usd con cambio a 30 días. ETH vía Etherscan
+    gas oracle (requiere key): solo avg_fee_usd (estimado sobre una
+    transferencia estándar de 21k gas) — hash_rate no aplica a una chain
+    Proof-of-Stake, y el histórico de gas price es exclusivo del plan Pro
+    de Etherscan, así que tx_count_24h y ambos *_change_30d_pct quedan
+    `None` para ethereum en vez de estimarse."""
 
     chain: Literal["bitcoin", "ethereum"]
     hash_rate: float | None = None
