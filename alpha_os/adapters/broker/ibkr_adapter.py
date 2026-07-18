@@ -1,8 +1,9 @@
 import asyncio
 
-from ib_async import IB, LimitOrder, MarketOrder, Stock
+from ib_async import IB, Crypto, LimitOrder, MarketOrder, Stock
 
 from alpha_os.config import settings
+from alpha_os.core.enums import AssetClass
 from alpha_os.core.models import BrokerAccountSummary, BrokerPosition, PaperOrderRequest, PaperOrderResult
 
 # Convención de IBKR: cuentas de práctica siempre empiezan con "DU", las reales con "U".
@@ -10,6 +11,7 @@ PAPER_ACCOUNT_PREFIX = "DU"
 ACCOUNT_SUMMARY_TAGS = {"NetLiquidation", "TotalCashValue", "BuyingPower"}
 ORDER_STATUS_POLL_SECONDS = 1.0
 ORDER_STATUS_MAX_POLLS = 5
+CRYPTO_EXCHANGE = "PAXOS"  # venue de cripto de IBKR
 
 
 def _to_float(value: str | None) -> float | None:
@@ -19,6 +21,18 @@ def _to_float(value: str | None) -> float | None:
         return float(value)
     except ValueError:
         return None
+
+
+def _build_contract(request: PaperOrderRequest):
+    """Cripto y equity usan tipos de contrato distintos en IBKR — armar
+    todo como Stock (como se hacía antes) hace que tickers cripto tipo
+    'BTC-USD' fallen la resolución de contrato y tumben la orden con un
+    error de bajo nivel de ib_async. Verificado en vivo: 'BTC-USD' como
+    Stock devuelve un contrato no resuelto."""
+    if request.asset_class == AssetClass.CRYPTO:
+        symbol = request.ticker.split("-")[0]  # "BTC-USD" -> "BTC"
+        return Crypto(symbol, CRYPTO_EXCHANGE, "USD")
+    return Stock(request.ticker, "SMART", "USD")
 
 
 class IBKRAdapter:
@@ -111,16 +125,24 @@ class IBKRAdapter:
         if request.order_type == "LMT" and request.limit_price is None:
             return _rejected(account, "order_type='LMT' requiere limit_price.")
 
-        contract = Stock(request.ticker, "SMART", "USD")
+        contract = _build_contract(request)
         qualified = await self.ib.qualifyContractsAsync(contract)
-        if not qualified:
+        if not qualified or qualified[0] is None:
             return _rejected(account, f"No se pudo resolver el contrato para '{request.ticker}' en IBKR.")
 
-        order = (
-            LimitOrder(request.side, request.quantity, request.limit_price)
-            if request.order_type == "LMT"
-            else MarketOrder(request.side, request.quantity)
-        )
+        if request.order_type == "LMT":
+            order = LimitOrder(request.side, request.quantity, request.limit_price)
+        elif request.cash_amount is not None:
+            # Órdenes de cripto fraccionarias van por cantidad de efectivo,
+            # no por cantidad de moneda (ver docstring de PaperOrderRequest).
+            # Verificado en vivo: el TIF por defecto ("DAY") es inválido para
+            # estas órdenes ("Error 10052: Tiempo de vigencia inválido") —
+            # cripto solo acepta IOC/GTC, nunca DAY.
+            order = MarketOrder(request.side, 0)
+            order.cashQty = request.cash_amount
+            order.tif = "IOC"
+        else:
+            order = MarketOrder(request.side, request.quantity)
         order.account = account
 
         trade = self.ib.placeOrder(qualified[0], order)

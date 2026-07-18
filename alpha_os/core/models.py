@@ -750,13 +750,23 @@ class BrokerAccountSummary(BaseModel):
 
 class PaperOrderRequest(BaseModel):
     """Orden de prueba a enviar vía IBKR — siempre en cuenta de práctica,
-    el adapter se niega a enviarla si la cuenta conectada no lo es."""
+    el adapter se niega a enviarla si la cuenta conectada no lo es.
+    `asset_class` decide el tipo de contrato de IBKR (Stock vs. Crypto) —
+    sin esto, tickers cripto como 'BTC-USD' se armaban como acción y
+    tumbaban la orden con un error de contrato no resuelto. `cash_amount`
+    es específico de cripto: verificado en vivo que IBKR rechaza órdenes de
+    cripto fraccionarias especificadas en cantidad de moneda ("Deberá
+    configurar la cantidad de efectivo para esta orden") — hay que pedirlas
+    en dólares. Cuando `cash_amount` está presente, el adapter lo usa en
+    vez de `quantity` para construir la orden."""
 
     ticker: str
+    asset_class: AssetClass = AssetClass.EQUITY
     side: Literal["BUY", "SELL"]
     quantity: float = Field(gt=0)
     order_type: Literal["MKT", "LMT"] = "MKT"
     limit_price: float | None = None
+    cash_amount: float | None = None
 
 
 class PaperOrderResult(BaseModel):
@@ -779,3 +789,43 @@ class PaperOrderResult(BaseModel):
 
     def has_data(self) -> bool:
         return bool(self.order_id) or bool(self.rejected_reason)
+
+
+class PositionBriefCard(BaseModel):
+    """Una posición abierta narrada para el Alpha Brief — combina bookkeeping
+    (`Position`) con una reevaluación de tesis fresca (`ThesisReassessment`,
+    `None` si la posición no tiene señal original registrada)."""
+
+    position_id: str
+    ticker: str
+    side: Literal["buy", "sell"]
+    entry_price: float
+    current_price: float | None = None
+    floating_pnl_pct: float | None = None
+    thesis: ThesisReassessment | None = None
+
+
+class AlphaBrief(BaseModel):
+    """Composición de todo lo demás para la pantalla principal — no calcula
+    nada nuevo por sí sola, solo agrega salidas ya existentes de
+    MarketRegimeEngine, PositionManager, SignalEngine, NewsAPIAdapter y
+    LearningEngine."""
+
+    market_regime: MarketRegimeAssessment
+    broker_account: BrokerAccountSummary | None = None
+    open_positions: list[PositionBriefCard] = Field(default_factory=list)
+    opportunities: list[Signal] = Field(default_factory=list)
+    headlines: list[Evidence] = Field(default_factory=list)
+    learning: LearningReport
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class DailyTradingRunResult(BaseModel):
+    """Resultado de una corrida del bot de trading diario — `actions` es un
+    log legible ticker por ticker (por qué se operó, se omitió, o se
+    rechazó), nunca solo un conteo. No se persiste entre reinicios del
+    servidor: las posiciones/órdenes reales sí quedan durables (SQLite +
+    IBKR), esto es solo la bitácora de la corrida."""
+
+    ran_at: datetime = Field(default_factory=datetime.utcnow)
+    actions: list[str] = Field(default_factory=list)

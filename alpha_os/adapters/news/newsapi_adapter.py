@@ -6,6 +6,7 @@ from alpha_os.core.enums import EvidenceType, SourceTier
 from alpha_os.core.models import Evidence
 
 NEWSAPI_ENDPOINT = "https://newsapi.org/v2/everything"
+NEWSAPI_TOP_HEADLINES_ENDPOINT = "https://newsapi.org/v2/top-headlines"
 
 # Dominios explícitos del spec (niveles S/A). NewsAPI agrega prensa
 # mainstream vetted por su curaduría, así que cualquier dominio no listado
@@ -99,3 +100,45 @@ class NewsAPIAdapter(NewsAdapter):
                 )
             )
         return evidence
+
+    def get_market_headlines(self, limit: int = 5) -> list[Evidence]:
+        """Titulares generales de mercado (no atados a un ticker), vía
+        `/v2/top-headlines?category=business` — endpoint distinto de
+        `get_recent_news` (que busca por ticker en `/v2/everything`). Mismo
+        filtro de spam y misma clasificación de tier por dominio."""
+        if not settings.newsapi_api_key:
+            return []
+
+        try:
+            response = requests.get(
+                NEWSAPI_TOP_HEADLINES_ENDPOINT,
+                params={
+                    "category": "business",
+                    "language": "en",
+                    "country": "us",
+                    "pageSize": limit,
+                    "apiKey": settings.newsapi_api_key,
+                },
+                timeout=10,
+            )
+            response.raise_for_status()
+        except requests.RequestException:
+            return []
+
+        articles = response.json().get("articles", [])
+        evidence = []
+        for article in articles:
+            url = article.get("url") or ""
+            title = article.get("title") or ""
+            if not title or _is_spam(title):
+                continue
+            evidence.append(
+                Evidence(
+                    claim=title,
+                    source_name=article.get("source", {}).get("name", "desconocido"),
+                    source_tier=_tier_for_domain(url),
+                    evidence_type=EvidenceType.FACT,
+                    url=url or None,
+                )
+            )
+        return evidence[:limit]

@@ -405,6 +405,78 @@ combinación.
 Ninguna señal generada por este sistema debe tratarse como asesoría de
 inversión personalizada. Es una herramienta de análisis que tú operas.
 
+## Alpha Brief — pantalla principal
+
+`GET /` sirve `alpha_os/static/index.html`: una pantalla narrativa en
+español (tema oscuro, sin frameworks, HTML/CSS/JS plano) que reemplaza a
+Swagger como primera pantalla — `/docs` sigue disponible para depuración,
+pero ya no es lo primero que se ve. Todo lo que muestra sale de
+`GET /brief` (`alpha_os/api/routes_brief.py`), que **agrega salidas ya
+existentes** (MarketRegimeEngine, PositionManager, SignalEngine,
+LearningEngine) — no calcula nada nuevo, solo compone.
+
+- **Market Pulse**: régimen de mercado (tendencia/riesgo/liquidez) +
+  confianza + el texto de `justification` tal cual, sin adornar.
+- **Titulares**: nuevo `NewsAPIAdapter.get_market_headlines()` vía
+  `/v2/top-headlines?category=business` (antes el adapter solo buscaba por
+  ticker vía `/v2/everything`) — mismo filtro de spam y tier por dominio.
+- **Mis posiciones**: cada una con su **reevaluación de tesis real**.
+  `PositionManager.reassess_thesis()` (antes un stub que lanzaba
+  `NotImplementedError`) ahora regenera una señal fresca con el mismo
+  SignalEngine y compara contra `original_signal`: dirección, delta de
+  conviction_score, y diff de factores por label (qué desapareció/apareció/
+  cambió de signo) — construido desde los `rationale` reales de esos
+  factores. Sin `original_signal` guardado, dice explícitamente que no hay
+  línea base para comparar, en vez de inventar un veredicto.
+- **Oportunidades**: escaneo de `settings.watchlist` (ver `WATCHLIST` en
+  `.env.example` — el usuario la declara explícitamente, nunca se infiere),
+  ordenado por `conviction_score`. Clic en una tarjeta expande `factors` +
+  `rationale` completos del `Signal` (cero cálculo nuevo, ya venían en el
+  modelo). Advertencia de performance conocida: escanear el watchlist
+  entero dispara una llamada real de `SignalEngine.generate_signal()` por
+  ticker (yfinance/NewsAPI/FRED/SEC/Binance en vivo) — con 7 tickers,
+  `/brief` puede tardar varios segundos.
+- **Aprendizaje**: `LearningReport.rationale` tal cual — con una cuenta
+  nueva sin posiciones cerradas, dice honestamente que no hay muestra
+  todavía.
+
+Fuera de este alcance a propósito, porque no hay dato real que lo respalde
+hoy (documentado para no fabricarlo): sentimiento social agregado de
+mercado, un gauge único de "Smart Money" a nivel de mercado, y postura por
+medio financiero individual (Reuters/Bloomberg/WSJ por separado).
+
+## Bot de trading diario (paper)
+
+`alpha_os/jobs/daily_trading_job.py` cierra el ciclo completo: encuentra
+oportunidades (mismo escaneo del watchlist que "Oportunidades") y las
+**ejecuta de verdad** en la cuenta paper de IBKR, sin intervención manual.
+
+- **$1,000 por operación** (monto fijo, no % del buying power — decisión
+  explícita del usuario). Equities: acciones enteras (si $1,000 no alcanza
+  para 1 acción, se omite con motivo explícito). Cripto: cantidad
+  fraccionaria.
+- **Una vez al día**: loop en background dentro del mismo proceso FastAPI
+  (`alpha_os/main.py`, `_daily_trading_loop`), sin dependencia nueva tipo
+  `apscheduler`/cron/launchd. Trade-off aceptado: solo corre mientras
+  `uvicorn` esté vivo — para la prueba de una semana, hay que dejar el
+  servidor corriendo junto con TWS.
+- **Nunca duplica posiciones**: si ya hay una posición activa en un ticker,
+  ese ticker se salta ese día.
+- **Nunca opera en cuenta real**: reutiliza el mismo guardrail de
+  `IBKRAdapter.place_test_order` (prefijo de cuenta "DU").
+- Toda orden aceptada se registra en `PositionManager` con su
+  `original_signal` — así `reassess_thesis`, el post-mortem y
+  `LearningEngine` tienen datos reales con qué trabajar al cerrar la semana.
+- **Deliberadamente no corre al arrancar el servidor** (`main.py`, ver
+  comentario en `_daily_trading_loop`): reiniciar el servidor durante
+  desarrollo no debe disparar una corrida real. La primera corrida del día
+  se dispara a mano vía `POST /jobs/daily-trading/run-now` (o el botón
+  "Ejecutar ahora" en Alpha Brief); de ahí en adelante corre sola cada 24h.
+- `GET /jobs/daily-trading/last-run` — último resultado (log legible
+  ticker por ticker: operó, se omitió, o se rechazó, y por qué). Se
+  muestra en Alpha Brief bajo "Bot de trading diario". No persiste entre
+  reinicios del servidor — las posiciones/órdenes reales sí (SQLite + IBKR).
+
 ## Setup
 
 ```bash

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from alpha_os.core.enums import OperationSide, PositionStatus
@@ -11,6 +12,9 @@ from alpha_os.core.models import (
 )
 from alpha_os.positions.storage import SQLiteJSONStore
 
+if TYPE_CHECKING:
+    from alpha_os.engine.signal_engine import SignalEngine
+
 
 class PositionNotFoundError(KeyError):
     pass
@@ -22,9 +26,11 @@ class PositionManager:
     El registro, actualización de precio, alertas y stops es bookkeeping
     funcional, persistido en SQLite (sobrevive reinicios del servidor —
     condición necesaria para que el módulo de aprendizaje continuo tenga
-    historial real de qué aprender). La *decisión* de qué alerta emitir o
-    cómo recalcular la tesis (secciones 3-4) depende del motor de señales/
-    análisis y queda marcada como pendiente."""
+    historial real de qué aprender). `reassess_thesis` (sección 3) recibe el
+    SignalEngine como parámetro en vez de como dependencia del constructor —
+    evita acoplar el ciclo de vida de posiciones al motor de señales para
+    todo lo demás (registro, marcado de precio, alertas), que no lo
+    necesitan."""
 
     def __init__(self, store: SQLiteJSONStore | None = None):
         self._store = store or SQLiteJSONStore()
@@ -72,13 +78,72 @@ class PositionManager:
         self._store.put("positions", position_id, position)
         return position
 
-    def reassess_thesis(self, position_id: str) -> ThesisReassessment:
-        """Sección 3: ¿la tesis original sigue siendo válida? Requiere
-        integrar analysis/(technical|fundamental|macro|sentiment|onchain) y
-        comparar contra `position.entry.original_thesis`. Pendiente de
-        implementar junto con el motor de señales."""
-        raise NotImplementedError(
-            "Recalculo de tesis pendiente — depende del motor de análisis."
+    def reassess_thesis(self, position_id: str, signal_engine: "SignalEngine") -> ThesisReassessment:
+        """Sección 3: ¿la tesis original sigue siendo válida? Regenera una
+        señal fresca con el mismo SignalEngine que generó la original y
+        compara: dirección (¿sigue apoyando el lado de la posición?),
+        conviction_score (delta), y factores por label (cuáles
+        desaparecieron/aparecieron/cambiaron de signo). Sin una señal
+        original guardada no hay línea base — se dice explícitamente en vez
+        de inventar una comparación."""
+        position = self.get(position_id)
+        original_signal = position.entry.original_signal
+        if original_signal is None:
+            return ThesisReassessment(
+                still_valid=False,
+                success_probability_delta=0.0,
+                what_changed=(
+                    "Esta posición no tiene una señal original registrada — sin línea base "
+                    "no se puede reevaluar la tesis."
+                ),
+            )
+
+        fresh_signal = signal_engine.generate_signal(position.entry.ticker, position.entry.asset_class)
+        if fresh_signal is None:
+            return ThesisReassessment(
+                still_valid=False,
+                success_probability_delta=0.0,
+                what_changed=(
+                    "No se pudo generar una señal nueva para este ticker en este momento "
+                    "(datos insuficientes) — no se puede reevaluar la tesis."
+                ),
+            )
+
+        position_direction = "long" if position.entry.side == OperationSide.BUY else "short"
+        still_valid = fresh_signal.direction == position_direction
+        success_probability_delta = fresh_signal.conviction_score - original_signal.conviction_score
+
+        original_factors = {f.label: f for f in original_signal.factors}
+        fresh_factors = {f.label: f for f in fresh_signal.factors}
+
+        appeared = [fresh_factors[label] for label in fresh_factors if label not in original_factors]
+        disappeared = [original_factors[label] for label in original_factors if label not in fresh_factors]
+        flipped = [
+            fresh_factors[label]
+            for label in fresh_factors
+            if label in original_factors
+            and (fresh_factors[label].weight_pct > 0) != (original_factors[label].weight_pct > 0)
+        ]
+
+        changes: list[str] = []
+        if not still_valid:
+            changes.append(
+                f'La dirección de la señal cambió de "{position_direction}" a '
+                f'"{fresh_signal.direction}" — la tesis original ya no se sostiene.'
+            )
+        for f in disappeared:
+            changes.append(f'Ya no aparece el factor "{f.label}" ({f.rationale}).')
+        for f in appeared:
+            changes.append(f'Apareció un factor nuevo: "{f.label}" ({f.rationale}).')
+        for f in flipped:
+            changes.append(f'El factor "{f.label}" cambió de sentido: {f.rationale}')
+        if not changes:
+            changes.append("Los factores que sostienen la tesis se mantienen sin cambios.")
+
+        return ThesisReassessment(
+            still_valid=still_valid,
+            success_probability_delta=success_probability_delta,
+            what_changed=" ".join(changes),
         )
 
     def record_thesis_reassessment(

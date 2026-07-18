@@ -1,7 +1,29 @@
 import os
 from dotenv import load_dotenv
 
+from alpha_os.core.enums import AssetClass
+
 load_dotenv()
+
+
+def _parse_watchlist(raw: str) -> list[tuple[str, AssetClass]]:
+    """Formato `TICKER:asset_class`, separado por comas (ej.
+    `NVDA:equity,BTC-USD:crypto`). El usuario declara explícitamente qué
+    sigue — este sistema nunca decide una watchlist por su cuenta. Entradas
+    mal formadas o con asset_class desconocida se ignoran en vez de fallar
+    el arranque completo."""
+    entries: list[tuple[str, AssetClass]] = []
+    for raw_entry in raw.split(","):
+        raw_entry = raw_entry.strip()
+        if not raw_entry:
+            continue
+        ticker, _, asset_class_raw = raw_entry.partition(":")
+        try:
+            asset_class = AssetClass(asset_class_raw.strip().lower() or "equity")
+        except ValueError:
+            continue
+        entries.append((ticker.strip().upper(), asset_class))
+    return entries
 
 
 class Settings:
@@ -27,6 +49,14 @@ class Settings:
     # una alineación casi perfecta como el 70 original del spec. Subir hacia
     # 70 cuando macro/institucional se conecten y el máximo teórico crezca.
     signal_confidence_threshold: int = int(os.getenv("SIGNAL_CONFIDENCE_THRESHOLD", "45"))
+    # Watchlist para el escaneo de "Oportunidades" en /brief — declarada
+    # explícitamente por el usuario en .env, nunca inferida.
+    watchlist: list[tuple[str, AssetClass]] = _parse_watchlist(
+        os.getenv(
+            "WATCHLIST",
+            "NVDA:equity,AAPL:equity,MSFT:equity,TSLA:equity,META:equity,BTC-USD:crypto,ETH-USD:crypto",
+        )
+    )
 
 
 settings = Settings()

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Alpha Brief — AlphaOS</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">α</span>
+      <span class="brand-name">Alpha Brief</span>
+    </div>
+    <div class="topbar-right">
+      <span id="generated-at" class="timestamp"></span>
+      <button id="refresh-btn" class="btn-refresh" title="Actualizar">↻</button>
+      <a href="/docs" class="btn-docs" title="API cruda (Swagger)">API</a>
+    </div>
+  </header>
+
+  <main id="app">
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>Escaneando watchlist, régimen de mercado y posiciones…</p>
+    </div>
+    <div id="error" class="error hidden"></div>
+    <div id="content" class="content hidden">
+
+      <section id="market-pulse" class="card pulse-card"></section>
+
+      <section id="broker-account" class="card"></section>
+
+      <section id="bot-activity" class="card"></section>
+
+      <section class="two-col">
+        <div id="headlines" class="card"></div>
+        <div id="learning" class="card"></div>
+      </section>
+
+      <section>
+        <h2 class="section-title">Mis posiciones</h2>
+        <div id="positions" class="cards-grid"></div>
+      </section>
+
+      <section>
+        <h2 class="section-title">Oportunidades</h2>
+        <div id="opportunities" class="cards-grid"></div>
+      </section>
+
+    </div>
+  </main>
+
+  <div id="detail-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-panel">
+      <button id="modal-close" class="modal-close">✕</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

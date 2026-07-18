@@ -128,3 +128,71 @@ async def test_place_test_order_rejected_when_contract_not_qualified():
 
     assert result.status == "rejected"
     assert "NOTAREALTICKER" in result.rejected_reason
+
+
+async def test_place_test_order_rejected_when_qualified_contract_is_none():
+    """Caso real encontrado en vivo: qualifyContractsAsync puede devolver
+    una lista no vacía que contiene None (no una lista vacía) cuando IBKR
+    no resuelve el contrato — verificado con un ticker cripto armado como
+    Stock. Antes de este fix, `qualified[0]` (None) se pasaba a placeOrder
+    y tumbaba el proceso con un AttributeError de bajo nivel."""
+    adapter = _connected_adapter()
+    adapter.ib.qualifyContractsAsync = AsyncMock(return_value=[None])
+
+    result = await adapter.place_test_order(PaperOrderRequest(ticker="BTC-USD", side="BUY", quantity=1))
+
+    assert result.status == "rejected"
+    assert "BTC-USD" in result.rejected_reason
+
+
+async def test_place_test_order_builds_crypto_contract_for_crypto_asset_class():
+    from alpha_os.core.enums import AssetClass
+
+    adapter = _connected_adapter()
+    qualified_contract = Contract(symbol="BTC", conId=1)
+    adapter.ib.qualifyContractsAsync = AsyncMock(return_value=[qualified_contract])
+
+    trade = Trade()
+    trade.order.orderId = 1
+    trade.orderStatus.status = OrderStatus.Filled
+    trade.orderStatus.filled = 0.02
+    trade.orderStatus.avgFillPrice = 50000.0
+    adapter.ib.placeOrder = MagicMock(return_value=trade)
+
+    await adapter.place_test_order(
+        PaperOrderRequest(ticker="BTC-USD", asset_class=AssetClass.CRYPTO, side="BUY", quantity=0.02)
+    )
+
+    submitted_contract = adapter.ib.qualifyContractsAsync.call_args[0][0]
+    assert submitted_contract.secType == "CRYPTO"
+    assert submitted_contract.symbol == "BTC"
+
+
+async def test_place_test_order_uses_cash_quantity_for_crypto_with_cash_amount():
+    """Caso real encontrado en vivo: IBKR rechaza órdenes de cripto
+    fraccionarias especificadas en cantidad de moneda con 'Deberá
+    configurar la cantidad de efectivo para esta orden' — hay que pedirlas
+    en dólares vía order.cashQty, con totalQuantity en 0."""
+    from alpha_os.core.enums import AssetClass
+
+    adapter = _connected_adapter()
+    qualified_contract = Contract(symbol="BTC", conId=1)
+    adapter.ib.qualifyContractsAsync = AsyncMock(return_value=[qualified_contract])
+
+    trade = Trade()
+    trade.order.orderId = 1
+    trade.orderStatus.status = OrderStatus.Filled
+    trade.orderStatus.filled = 0.02
+    trade.orderStatus.avgFillPrice = 50000.0
+    adapter.ib.placeOrder = MagicMock(return_value=trade)
+
+    await adapter.place_test_order(
+        PaperOrderRequest(
+            ticker="BTC-USD", asset_class=AssetClass.CRYPTO, side="BUY", quantity=0.02, cash_amount=1000.0
+        )
+    )
+
+    submitted_order = adapter.ib.placeOrder.call_args[0][1]
+    assert submitted_order.totalQuantity == 0
+    assert submitted_order.cashQty == 1000.0
+    assert submitted_order.tif == "IOC"
